@@ -1,0 +1,19 @@
+{
+  "feishu": {
+    "appId": "",
+    "appSecret": "",
+    "configDocUrl": ""
+  },
+  "openai": {
+    "apiKey": "",
+    "model": "gpt-4"
+  },
+  "schedule": {
+    "cron": "0 20 * * *",
+    "timezone": "Asia/Shanghai"
+  },
+  "concurrency": {
+    "maxCollectors": 10,
+    "maxReminders": 10
+  }
+}
