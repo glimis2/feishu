@@ -10,13 +10,18 @@
     "test": "jest",
     "test:watch": "jest --watch"
   },
-  "keywords": ["feishu", "agent", "monitoring"],
+  "keywords": [
+    "feishu",
+    "agent",
+    "monitoring"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@langchain/core": "^0.3.0",
     "@langchain/openai": "^0.3.0",
     "axios": "^1.7.0",
+    "deepagentsjs-monorepo": "github:langchain-ai/deepagentsjs",
     "dotenv": "^16.4.0",
     "langchain": "^0.3.0",
     "node-cron": "^3.0.0",
