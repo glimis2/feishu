@@ -6,7 +6,7 @@
 
 ## 一、系统概述
 
-基于deepagents框架的多Agent协作系统，实现学员学习日报的自动收集、分析和提醒功能。系统每晚8:00自动运行，无需数据库，所有数据序列化到本地文件。
+基于deepagentjs框架和langchainjs的多Agent协作系统，实现学员学习日报的自动收集、分析和提醒功能。系统每晚8:00自动运行，无需数据库，所有数据序列化到本地文件。
 
 ## 二、系统架构
 
@@ -55,14 +55,14 @@ feishuagent/
 │   └── {date}.log           # 运行日志
 └── src/
     ├── agents/              # Agent实现
-    │   ├── main_agent.py
-    │   ├── collector_agent.py
-    │   └── reminder_agent.py
+    │   ├── main_agent.ts
+    │   ├── collector_agent.ts
+    │   └── reminder_agent.ts
     ├── tools/               # 飞书API工具
-    │   ├── feishu_doc.py
-    │   └── feishu_bot.py
+    │   ├── feishu_doc.ts
+    │   └── feishu_bot.ts
     └── scheduler/           # 定时任务
-        └── cron_scheduler.py
+        └── cron_scheduler.ts
 ```
 
 ### 3.2 关键数据结构
@@ -151,7 +151,7 @@ feishuagent/
 
 **步骤2: CollectorAgent批量收集（并行执行）**
 1. 读取任务文件获取学员文档URL列表
-2. 使用asyncio并行处理每个文档：
+2. 使用Promise.all并行处理每个文档：
    - 调用飞书API获取文档内容和最后修改时间
    - 判断文档状态：
      - 最后修改时间是今天 → 调用AI分析内容
@@ -173,7 +173,7 @@ feishuagent/
 **步骤3: ReminderAgent批量提醒（并行执行）**
 1. 等待CollectorAgent完成（轮询任务文件状态）
 2. 读取收集结果，筛选出"未提交"学员列表
-3. 使用asyncio并行发送飞书消息：
+3. 使用Promise.all并行发送飞书消息：
    - 消息内容："【学习日报提醒】请及时提交今天的学习日报"
    - 通过飞书机器人webhook或消息API发送
 4. 将发送结果写入 `data/tasks/{timestamp}_remind.json`
@@ -212,48 +212,53 @@ feishuagent/
 
 ## 五、技术实现细节
 
-### 5.1 deepagents集成
+### 5.1 deepagentjs集成
 
 **Agent定义**
-```python
-from deepagents import Agent
+```typescript
+import { Agent } from 'deepagentjs';
+import { ChatOpenAI } from '@langchain/openai';
 
-# MainAgent
-main_agent = Agent(
-    name="MainAgent",
-    tools=[file_reader, file_writer, task_scheduler],
-    system_prompt="你是主调度Agent，负责协调任务执行"
-)
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
 
-# CollectorAgent
-collector_agent = Agent(
-    name="CollectorAgent",
-    tools=[feishu_doc_reader, content_analyzer],
-    system_prompt="你是文档收集Agent，负责读取和分析学员文档"
-)
+// MainAgent
+const mainAgent = new Agent({
+  name: 'MainAgent',
+  llm,
+  tools: [fileReader, fileWriter, taskScheduler],
+  systemPrompt: '你是主调度Agent，负责协调任务执行'
+});
 
-# ReminderAgent
-reminder_agent = Agent(
-    name="ReminderAgent",
-    tools=[feishu_message_sender],
-    system_prompt="你是提醒Agent，负责向未提交学员发送提醒"
-)
+// CollectorAgent
+const collectorAgent = new Agent({
+  name: 'CollectorAgent',
+  llm,
+  tools: [feishuDocReader, contentAnalyzer],
+  systemPrompt: '你是文档收集Agent，负责读取和分析学员文档'
+});
+
+// ReminderAgent
+const reminderAgent = new Agent({
+  name: 'ReminderAgent',
+  llm,
+  tools: [feishuMessageSender],
+  systemPrompt: '你是提醒Agent，负责向未提交学员发送提醒'
+});
 ```
 
 ### 5.2 定时任务实现
 
-使用APScheduler实现定时触发：
-```python
-from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
+使用node-cron实现定时触发：
+```typescript
+import cron from 'node-cron';
 
-scheduler = BlockingScheduler()
-scheduler.add_job(
-    main_agent.run,
-    trigger=CronTrigger(hour=20, minute=0),
-    id='daily_monitor'
-)
-scheduler.start()
+// 每天20:00执行
+cron.schedule('0 20 * * *', async () => {
+  console.log('Starting daily monitor task...');
+  await mainAgent.run();
+}, {
+  timezone: 'Asia/Shanghai'
+});
 ```
 
 ### 5.3 飞书API集成
@@ -270,31 +275,36 @@ scheduler.start()
 
 ### 5.4 并行处理实现
 
-使用asyncio实现异步并发：
-```python
-import asyncio
-from asyncio import Semaphore
+使用p-limit实现并发控制：
+```typescript
+import pLimit from 'p-limit';
 
-async def process_student(student, semaphore):
-    async with semaphore:
-        # 读取文档
-        doc_content = await fetch_feishu_doc(student['doc_url'])
-        # 分析内容
-        summary = await analyze_content(doc_content)
-        return summary
+async function processStudent(student: Student): Promise<StudentResult> {
+  // 读取文档
+  const docContent = await fetchFeishuDoc(student.docUrl);
+  // 分析内容
+  const summary = await analyzeContent(docContent);
+  return { studentId: student.id, summary };
+}
 
-async def batch_collect(students, max_concurrency=10):
-    semaphore = Semaphore(max_concurrency)
-    tasks = [process_student(s, semaphore) for s in students]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    return results
+async function batchCollect(students: Student[], maxConcurrency = 10): Promise<StudentResult[]> {
+  const limit = pLimit(maxConcurrency);
+  const tasks = students.map(s => limit(() => processStudent(s)));
+  const results = await Promise.allSettled(tasks);
+  return results
+    .filter(r => r.status === 'fulfilled')
+    .map(r => (r as PromiseFulfilledResult<StudentResult>).value);
+}
 ```
 
 ### 5.5 AI内容分析
 
-**Prompt模板**
-```python
-ANALYSIS_PROMPT = """
+**使用langchainjs进行内容分析**
+```typescript
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { StructuredOutputParser } from 'langchain/output_parsers';
+
+const analysisPrompt = ChatPromptTemplate.fromTemplate(`
 分析以下学习日报，提取结构化信息：
 
 1. 学会的内容：学员明确表示已掌握或理解的知识点
@@ -302,67 +312,90 @@ ANALYSIS_PROMPT = """
 3. 疑问的问题：学员提出的具体问题
 
 文档内容：
-{doc_content}
+{docContent}
 
-请以JSON格式输出：
-{{
-  "learned": ["知识点1", "知识点2"],
-  "not_learned": ["知识点3"],
-  "questions": ["问题1", "问题2"]
-}}
-"""
+{formatInstructions}
+`);
+
+const parser = StructuredOutputParser.fromNamesAndDescriptions({
+  learned: '学会的内容列表',
+  not_learned: '不会的内容列表',
+  questions: '疑问的问题列表'
+});
+
+async function analyzeContent(docContent: string) {
+  const chain = analysisPrompt.pipe(llm).pipe(parser);
+  return await chain.invoke({
+    docContent,
+    formatInstructions: parser.getFormatInstructions()
+  });
+}
 ```
 
 **判断文档是否为当日学习记录**
-```python
-VALIDATION_PROMPT = """
+```typescript
+const validationPrompt = ChatPromptTemplate.fromTemplate(`
 判断以下文档是否为今日（{today}）的学习日报：
 
 文档内容：
-{doc_content}
+{docContent}
 
-文档最后修改时间：{last_modified}
+文档最后修改时间：{lastModified}
 
 判断标准：
 1. 最后修改时间是今天
 2. 内容中包含今日学习相关的描述
 
 请回答：是 或 否
-"""
+`);
 ```
 
 ## 六、部署和运行
 
 ### 6.1 环境要求
 
-- Python 3.9+
-- deepagents框架
-- 依赖库：aiohttp, apscheduler, python-dotenv
+- Node.js 18+
+- TypeScript 5+
+- 依赖库：deepagentjs, langchainjs, @langchain/openai, node-cron, p-limit, axios
 
 ### 6.2 配置步骤
 
-1. 安装依赖：`pip install -r requirements.txt`
+1. 安装依赖：`npm install` 或 `pnpm install`
 2. 配置飞书应用：
    - 创建飞书企业自建应用
    - 获取app_id和app_secret
    - 配置权限：文档读取、消息发送
-3. 编辑 `config/config.json`，填入飞书配置
+3. 编辑 `config/config.json`，填入飞书配置和OpenAI API Key
 4. 准备配置文档：在飞书创建文档，列出学员信息
 
 ### 6.3 启动方式
 
-**方式1: 直接运行**
+**方式1: 开发模式**
 ```bash
-python src/main.py
+npm run dev
+# 或
+tsx src/main.ts
 ```
 
-**方式2: 后台运行（Linux）**
+**方式2: 生产模式**
 ```bash
-nohup python src/main.py > logs/app.log 2>&1 &
+npm run build
+npm start
+# 或
+node dist/main.js
 ```
 
-**方式3: 系统服务（推荐）**
-使用systemd或supervisor管理进程，确保服务持续运行
+**方式3: 后台运行（Linux）**
+```bash
+nohup node dist/main.js > logs/app.log 2>&1 &
+```
+
+**方式4: 使用PM2管理（推荐）**
+```bash
+pm2 start dist/main.js --name feishuagent
+pm2 save
+pm2 startup
+```
 
 ### 6.4 监控和维护
 
