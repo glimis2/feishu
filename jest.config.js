@@ -7,5 +7,8 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts'
+  ],
+  transformIgnorePatterns: [
+    'node_modules/(?!(p-limit|yocto-queue)/)'
   ]
 };
