@@ -1,6 +1,6 @@
 {
   "name": "feishuagent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "飞书学员监督平台 - 自动收集和分析学员学习日报",
   "main": "dist/main.js",
   "scripts": {
