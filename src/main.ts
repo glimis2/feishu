@@ -5,9 +5,8 @@ import { FeishuAuth } from './tools/feishu-auth';
 import { FeishuDocClient } from './tools/feishu-doc';
 import { FeishuBotClient } from './tools/feishu-bot';
 import { ContentAnalyzer } from './tools/content-analyzer';
-import { CollectorAgent } from './agents/collector-agent';
-import { ReminderAgent } from './agents/reminder-agent';
-import { MainAgent } from './agents/main-agent';
+import { createMainAgent, executeDailyTask } from './agents/main-agent-v2';
+import { initializeToolDependencies } from './tools/agent-tools';
 import { CronScheduler } from './scheduler/cron-scheduler';
 import { logger } from './utils/logger';
 import { readJsonFile, ensureDir } from './utils/file';
@@ -71,23 +70,11 @@ async function main() {
     const botClient = new FeishuBotClient(feishuAuth);
     const analyzer = new ContentAnalyzer(llm);
 
-    const collectorAgent = new CollectorAgent(
-      docClient,
-      analyzer,
-      config.concurrency.maxCollectors
-    );
+    // 初始化 agent-tools 的依赖
+    initializeToolDependencies(feishuAuth, docClient, botClient, analyzer);
 
-    const reminderAgent = new ReminderAgent(
-      botClient,
-      config.concurrency.maxReminders
-    );
-
-    const mainAgent = new MainAgent(
-      collectorAgent,
-      reminderAgent,
-      docClient,
-      config.feishu.configDocUrl
-    );
+    // 使用 deepagentsjs 创建 MainAgent
+    const mainAgent = createMainAgent(llm, docClient, config.feishu.configDocUrl);
 
     const scheduler = new CronScheduler(
       config.schedule.cron,
@@ -95,7 +82,7 @@ async function main() {
     );
 
     scheduler.schedule(async () => {
-      await mainAgent.executeDailyTask();
+      await executeDailyTask(mainAgent);
     });
 
     scheduler.start();
