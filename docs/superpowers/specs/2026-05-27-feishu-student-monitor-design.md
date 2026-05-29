@@ -214,36 +214,134 @@ feishuagent/
 
 ### 5.1 deepagentjs集成
 
+**Agent架构说明**
+
+deepagentsjs 提供了基于 LangGraph 的 Agent 框架，支持工具调用和状态管理。
+
 **Agent定义**
 ```typescript
-import { Agent } from 'deepagentjs';
+import { Agent } from 'deepagentsjs';
 import { ChatOpenAI } from '@langchain/openai';
 
-const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+const llm = new ChatOpenAI({ 
+  modelName: 'gpt-4',
+  temperature: 0 
+});
 
-// MainAgent
+// MainAgent - 主调度Agent
 const mainAgent = new Agent({
   name: 'MainAgent',
   llm,
-  tools: [fileReader, fileWriter, taskScheduler],
-  systemPrompt: '你是主调度Agent，负责协调任务执行'
+  tools: [
+    loadConfigTool,      // 加载配置文档
+    parseConfigTool,     // 解析学员列表
+    saveTaskTool,        // 保存任务状态
+    saveDailyReportTool  // 保存每日报告
+  ],
+  systemPrompt: `你是主调度Agent，负责协调整个学员监督流程。
+你的职责：
+1. 从飞书文档加载学员配置
+2. 调用CollectorAgent收集学员学习数据
+3. 调用ReminderAgent向未提交学员发送提醒
+4. 生成并保存每日报告
+
+请按照工作流程顺序执行任务。`
 });
 
-// CollectorAgent
+// CollectorAgent - 文档收集Agent
 const collectorAgent = new Agent({
   name: 'CollectorAgent',
   llm,
-  tools: [feishuDocReader, contentAnalyzer],
-  systemPrompt: '你是文档收集Agent，负责读取和分析学员文档'
+  tools: [
+    fetchFeishuDocTool,    // 获取飞书文档内容
+    analyzeContentTool,    // 分析学习内容
+    validateDateTool       // 验证是否为今日报告
+  ],
+  systemPrompt: `你是文档收集Agent，负责批量收集和分析学员学习日报。
+你的职责：
+1. 读取每个学员的飞书文档
+2. 判断文档是否为今日更新
+3. 如果是今日报告，使用AI分析提取：学会的内容、不会的内容、疑问的问题
+4. 返回每个学员的分析结果
+
+使用并发处理提高效率，但要控制并发数量避免API限流。`
 });
 
-// ReminderAgent
+// ReminderAgent - 提醒Agent
 const reminderAgent = new Agent({
   name: 'ReminderAgent',
   llm,
-  tools: [feishuMessageSender],
-  systemPrompt: '你是提醒Agent，负责向未提交学员发送提醒'
+  tools: [
+    sendFeishuMessageTool  // 发送飞书消息
+  ],
+  systemPrompt: `你是提醒Agent，负责向未提交学员发送学习日报提醒。
+你的职责：
+1. 接收未提交学员列表
+2. 向每个学员发送飞书消息提醒
+3. 返回发送结果
+
+消息内容：【学习日报提醒】请及时提交今天的学习日报
+
+使用并发发送提高效率，但要控制并发数量。`
 });
+```
+
+**Agent工具定义**
+
+每个Agent的工具都是标准的LangChain工具：
+
+```typescript
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
+
+// 示例：获取飞书文档工具
+const fetchFeishuDocTool = new DynamicStructuredTool({
+  name: 'fetch_feishu_doc',
+  description: '获取飞书文档的内容和最后修改时间',
+  schema: z.object({
+    docUrl: z.string().describe('飞书文档URL')
+  }),
+  func: async ({ docUrl }) => {
+    const documentId = extractDocumentId(docUrl);
+    const docClient = new FeishuDocClient(feishuAuth);
+    const content = await docClient.getDocContent(documentId);
+    return JSON.stringify(content);
+  }
+});
+
+// 示例：分析内容工具
+const analyzeContentTool = new DynamicStructuredTool({
+  name: 'analyze_content',
+  description: '使用AI分析学习日报内容，提取学会的、不会的、疑问的内容',
+  schema: z.object({
+    content: z.string().describe('文档内容')
+  }),
+  func: async ({ content }) => {
+    const analyzer = new ContentAnalyzer(llm);
+    const summary = await analyzer.analyzeContent(content);
+    return JSON.stringify(summary);
+  }
+});
+```
+
+**Agent执行流程**
+
+```typescript
+// 1. MainAgent启动每日任务
+const mainResult = await mainAgent.invoke({
+  input: '执行今日学员监督任务',
+  config: {
+    configDocUrl: 'https://feishu.cn/docx/xxx'
+  }
+});
+
+// 2. MainAgent内部会调用CollectorAgent
+// CollectorAgent使用工具收集每个学员的数据
+
+// 3. MainAgent根据收集结果调用ReminderAgent
+// ReminderAgent使用工具发送提醒消息
+
+// 4. MainAgent生成并保存每日报告
 ```
 
 ### 5.2 定时任务实现
