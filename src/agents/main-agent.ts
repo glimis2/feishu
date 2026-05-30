@@ -1,152 +1,89 @@
-import * as path from 'path';
-import { CollectorAgent } from './collector-agent';
-import { ReminderAgent } from './reminder-agent';
-import { FeishuDocClient } from '../tools/feishu-doc';
-import { logger } from '../utils/logger';
-import { writeJsonFile } from '../utils/file';
-import { Student, TaskData, DailyReport } from '../types';
+import { ChatDeepSeek } from "@langchain/deepseek";
+import { loadConfig } from '../utils/config-utils'
+import { CronScheduler } from "../scheduler/cron-scheduler";
+import { createMiddleware } from "langchain";
+import { createDeepAgent } from 'deepagents';
+import { checkStudentTool, getAllStudentMdTool, sendFeishuMessageTool } from '../tools';
+import { summaryTool } from '../tools/summary-tool';
+import { getCurrentDateTool } from "../tools/get-current-date-tool";
+import { sendNotifyTool } from "../tools/send-notify-tool";
 
-export class MainAgent {
-  private collectorAgent: CollectorAgent;
-  private reminderAgent: ReminderAgent;
-  private docClient: FeishuDocClient;
-  private configDocUrl: string;
+const MAIN_AGENT_SYSTEM_PROMPT = `你是一个学员监督agent，负责协调整个学员监督流程。
 
-  constructor(
-    collectorAgent: CollectorAgent,
-    reminderAgent: ReminderAgent,
-    docClient: FeishuDocClient,
-    configDocUrl: string
-  ) {
-    this.collectorAgent = collectorAgent;
-    this.reminderAgent = reminderAgent;
-    this.docClient = docClient;
-    this.configDocUrl = configDocUrl;
-  }
+## 你的执行
 
-  async executeDailyTask(): Promise<void> {
-    const startTime = Date.now();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').slice(0, -5);
+### 预统计任务
+1. 由 checkStudentTool 获取是否包含未提交的学员
+2. 如果有,调用 sendFeishuMessageTool 发送提醒
+3. 做完以上任务后，调用 sendNotifyTool 进行整体进度的提醒
 
-    try {
-      logger.info('Starting daily monitoring task');
+### 最终汇总任务
+最终汇总任务，是对昨日任务的汇总，按照以下逻辑进行执行
 
-      const students = await this.loadStudentConfig();
-      logger.info(`Loaded ${students.length} students from config`);
+1. 调用 getAllStudentMdTool 获取所有学生待汇总的记录
+2. 对所有的日报进行总结, 强调不会获未掌握的内容结构
+3. 对未掌握的知识点和学员，进行关联，转换为json格式,其中
+name 为学员信息，knowledge 为未掌握的知识点
+4. 调用 sendNotifyTool 进行汇总任务的提醒
+`;
 
-      const collectTaskId = `${timestamp}_collect`;
-      const collectTask: TaskData = {
-        taskId: collectTaskId,
-        type: 'collect',
-        status: 'running',
-        createdAt: new Date().toISOString(),
-        input: { students },
-        errors: []
-      };
-      await this.saveTask(collectTask);
+/**
+ * 创建 MainAgent
+ */
+export async function createMainAgent() {
+  const config = await loadConfig()
 
-      const collectionResults = await this.collectorAgent.collectStudentData(students);
 
-      collectTask.status = 'completed';
-      collectTask.completedAt = new Date().toISOString();
-      collectTask.output = { results: collectionResults };
-      await this.saveTask(collectTask);
 
-      const notSubmittedStudents = collectionResults
-        .filter(r => r.status === 'not_submitted')
-        .map(r => students.find(s => s.studentId === r.studentId)!)
-        .filter(s => s !== undefined);
+  const llm = new ChatDeepSeek({
+    apiKey: config.deepseek.apiKey,
+    model: config.deepseek.model,
+    temperature: 0
+  })
 
-      logger.info(`Found ${notSubmittedStudents.length} students who haven't submitted`);
+  const logger = createMiddleware({
+    name: "logging",
+    wrapModelCall: async (request, handler) => {
+      const result = await handler(request);
+      return result;
+    },
+    wrapToolCall: async (request, handler) => {
+      const result = await handler(request);
+      return result;
+    },
+  });
 
-      const remindTaskId = `${timestamp}_remind`;
-      const remindTask: TaskData = {
-        taskId: remindTaskId,
-        type: 'remind',
-        status: 'running',
-        createdAt: new Date().toISOString(),
-        input: { students: notSubmittedStudents },
-        errors: []
-      };
-      await this.saveTask(remindTask);
+  const agent = createDeepAgent({
+    model: llm,
+    systemPrompt: MAIN_AGENT_SYSTEM_PROMPT,
+    tools:[
+      checkStudentTool,
+      getAllStudentMdTool,
+      summaryTool,
+      sendFeishuMessageTool,
+      getCurrentDateTool,
+      sendNotifyTool
+    ],
+    middleware: [
+      logger
+    ]
+  })
 
-      const reminderResults = await this.reminderAgent.sendReminders(notSubmittedStudents);
+  // 创建定时任务
+  const cronScheduler = new CronScheduler();
 
-      remindTask.status = 'completed';
-      remindTask.completedAt = new Date().toISOString();
-      remindTask.output = { results: reminderResults };
-      await this.saveTask(remindTask);
+  cronScheduler.schedule('0 20 * * *', async () => {
+    await agent.invoke({
+      messages: [{ role: 'user', content: "执行今日学员预检查任务" }]
+    })
+  });
 
-      const executionTime = Math.round((Date.now() - startTime) / 1000);
-      const report = this.generateDailyReport(
-        collectionResults,
-        reminderResults.filter(r => r.success).length,
-        executionTime
-      );
+  cronScheduler.schedule('10 0 * * *', async () => {
+    await agent.invoke({
+      messages: [{ role: 'user', content: "执行最终汇总任务" }]
+    })
+  });
 
-      await this.saveDailyReport(report);
-
-      logger.info(`Daily task completed in ${executionTime}s`);
-    } catch (error) {
-      logger.error(`Daily task failed: ${error}`);
-      throw error;
-    }
-  }
-
-  private async loadStudentConfig(): Promise<Student[]> {
-    const documentId = this.docClient.extractDocumentId(this.configDocUrl);
-    const docContent = await this.docClient.getDocContent(documentId);
-
-    return this.parseStudentConfig(docContent.content);
-  }
-
-  private parseStudentConfig(content: string): Student[] {
-    const students: Student[] = [];
-    const lines = content.split('\n');
-
-    let studentIdCounter = 1;
-    for (const line of lines) {
-      const match = line.match(/^-\s*(.+?):\s*(https:\/\/.+?)\s*(?:\((.+?)\))?$/);
-      if (match) {
-        const [, name, docUrl, feishuUserId] = match;
-        students.push({
-          studentId: String(studentIdCounter++).padStart(3, '0'),
-          name: name.trim(),
-          docUrl: docUrl.trim(),
-          feishuUserId: feishuUserId?.trim()
-        });
-      }
-    }
-
-    return students;
-  }
-
-  private generateDailyReport(
-    collectionResults: any[],
-    remindersSent: number,
-    executionTime: number
-  ): DailyReport {
-    const submitted = collectionResults.filter(r => r.status === 'submitted').length;
-    const notSubmitted = collectionResults.filter(r => r.status === 'not_submitted').length;
-
-    return {
-      date: new Date().toISOString().split('T')[0],
-      totalStudents: collectionResults.length,
-      submitted,
-      notSubmitted,
-      students: collectionResults,
-      remindersSent,
-      executionTime: `${Math.floor(executionTime / 60)}m ${executionTime % 60}s`
-    };
-  }
-
-  private async saveTask(task: TaskData): Promise<void> {
-    const filePath = path.join(process.cwd(), 'data', 'tasks', `${task.taskId}.json`);
-    await writeJsonFile(filePath, task);
-  }
-
-  private async saveDailyReport(report: DailyReport): Promise<void> {
-    const filePath = path.join(process.cwd(), 'data', 'history', `${report.date}.json`);
-    await writeJsonFile(filePath, report);
-  }
+  return agent;
 }
+
