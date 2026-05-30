@@ -12,7 +12,9 @@
       "Bash(timeout 5 npm run dev)",
       "Bash(npm run *)",
       "Bash(npm list *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npx tsx *)",
+      "Bash(npm uninstall *)"
     ]
   }
 }
