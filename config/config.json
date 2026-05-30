@@ -4,9 +4,9 @@
     "appSecret": "",
     "configDocUrl": ""
   },
-  "openai": {
+  "deepseek": {
     "apiKey": "",
-    "model": "gpt-4"
+    "model": "deepseek-chat"
   },
   "schedule": {
     "cron": "0 20 * * *",

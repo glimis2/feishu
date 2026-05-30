@@ -1053,7 +1053,7 @@ Expected: FAIL - ContentAnalyzer not found
 
 ```typescript
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { StructuredOutputParser } from 'langchain/output_parsers';
+import { StructuredOutputParser } from '@langchain/core/output_parsers';
 import { ChatOpenAI } from '@langchain/openai';
 import { logger } from '../utils/logger';
 import { StudentSummary } from '../types';

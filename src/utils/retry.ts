@@ -3,7 +3,7 @@ import { logger } from './logger';
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  delayMs: number = 2000
+  delayMs: number = 999999
 ): Promise<T> {
   let lastError: Error;
 

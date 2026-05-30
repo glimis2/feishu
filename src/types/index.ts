@@ -4,7 +4,7 @@ export interface Config {
     appSecret: string;
     configDocUrl: string;
   };
-  openai: {
+  deepseek: {
     apiKey: string;
     model: string;
   };

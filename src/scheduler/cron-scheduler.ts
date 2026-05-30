@@ -2,20 +2,17 @@ import cron from 'node-cron';
 import { logger } from '../utils/logger';
 
 export class CronScheduler {
-  private cronExpression: string;
   private timezone: string;
-  private task: cron.ScheduledTask | null = null;
 
-  constructor(cronExpression: string, timezone: string = 'Asia/Shanghai') {
-    this.cronExpression = cronExpression;
+  constructor(timezone: string = 'Asia/Shanghai') {
     this.timezone = timezone;
   }
 
-  schedule(taskFn: () => Promise<void>): void {
-    logger.info(`Scheduling task with cron: ${this.cronExpression} (${this.timezone})`);
+  schedule(cronExpression: string, taskFn: () => Promise<void>): void {
+    logger.info(`Scheduling task with cron: ${cronExpression} (${this.timezone})`);
 
-    this.task = cron.schedule(
-      this.cronExpression,
+    const task = cron.schedule(
+      cronExpression,
       async () => {
         try {
           logger.info('Cron task triggered');
@@ -29,21 +26,8 @@ export class CronScheduler {
         timezone: this.timezone
       }
     );
-
+    task.start()
     logger.info('Task scheduled successfully');
   }
 
-  start(): void {
-    if (this.task) {
-      this.task.start();
-      logger.info('Scheduler started');
-    }
-  }
-
-  stop(): void {
-    if (this.task) {
-      this.task.stop();
-      logger.info('Scheduler stopped');
-    }
-  }
 }

@@ -400,7 +400,7 @@ async function batchCollect(students: Student[], maxConcurrency = 10): Promise<S
 **使用langchainjs进行内容分析**
 ```typescript
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { StructuredOutputParser } from 'langchain/output_parsers';
+import { StructuredOutputParser } from '@langchain/core/output_parsers';
 
 const analysisPrompt = ChatPromptTemplate.fromTemplate(`
 分析以下学习日报，提取结构化信息：
