@@ -89,7 +89,7 @@ export class ContentAnalyzer {
         docContent,
         lastModified,
         today
-      });
+      }) as { content: unknown };
 
       const answer = (result.content as string).trim();
       return answer === '是';

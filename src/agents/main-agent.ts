@@ -30,7 +30,7 @@ name 为学员信息，knowledge 为未掌握的知识点
 /**
  * 创建 MainAgent
  */
-export async function createMainAgent() {
+export async function createMainAgent(): Promise<ReturnType<typeof createDeepAgent>> {
   const config = await loadConfig()
 
 
