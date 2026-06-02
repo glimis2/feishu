@@ -1,17 +1,10 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
-import * as path from 'path';
-import { logger } from '../utils/logger';
-import { fileExists, readJsonFile } from '../utils/file';
-import {StudentStore} from '../model/student'
-import { SummaryModel } from '../model/summary';
-import { ChatDeepSeek } from '@langchain/deepseek';
-import { loadConfig } from '../utils/config-utils';
+import {StudentStore} from '../model/studentLog'
 
-
-export const summaryTool = new DynamicStructuredTool({
-  name: 'summary',
-  description: '获取总结后的信息，进行消息通知',
+export const studentInfoTool = new DynamicStructuredTool({
+  name: 'studentInfo',
+  description: '查询,修改学员',
   schema: z.object({
     date: z.string().describe('检测时间，格式：YYYY-MM-DD'),
     text: z.string().describe('总结后的文本'),

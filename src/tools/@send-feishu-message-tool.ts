@@ -1,6 +1,6 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
-import {StudentStore} from '../model/student'
+import {StudentStore} from '../model/studentLog'
 
 import { getClient } from '../utils/client';
 const client = getClient()

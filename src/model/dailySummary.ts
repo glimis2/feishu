@@ -61,25 +61,21 @@ const headerMapping = {
     '时间': 'date'
 };
 
-export class SummaryModel {
+export class DailySummary {
     // 获取某天学生数据
     static async save(date,text) {
-        try {
-            await client.bitable.v1.appTableRecord.create({
-                    path: {
-                        app_token: await getAppToken(),
-                        table_id: await getTableId(),
-                    },
-                    data: {
-                        fields: {
-                            "文本": text,
-                            "时间": date,
-                        }
-                    },
-                }
-            )
-        } catch (error) {
-          
-        }
+        await client.bitable.v1.appTableRecord.create({
+                path: {
+                    app_token: await getAppToken(),
+                    table_id: await getTableId(),
+                },
+                data: {
+                    fields: {
+                        "总结": text,
+                        "时间": dayjs(date).toDate().getTime(),
+                    }
+                },
+            }
+        )
     }
 }

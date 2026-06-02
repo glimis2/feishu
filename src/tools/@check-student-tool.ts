@@ -6,7 +6,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import _ from 'lodash';
 
-import {StudentStore} from '../model/student'
+import {StudentLogStore} from '../model/studentLog'
 
 export const checkStudentTool = new DynamicStructuredTool({
   name: 'check_student',
@@ -18,8 +18,8 @@ export const checkStudentTool = new DynamicStructuredTool({
   }),
   func: async ({ date }) => {
     // 获取所有学生的模型
-    const studentStore = await StudentStore.load(date);
-    await studentStore.associateInfo()
-    return JSON.stringify(studentStore.unsubmitted())
+    const studentLogStore = await StudentLogStore.load(date);
+    await studentLogStore.associateInfo()
+    return JSON.stringify(studentLogStore.unsubmitted())
   },
 });
